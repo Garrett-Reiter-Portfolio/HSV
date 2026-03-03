@@ -25,6 +25,19 @@ impl State {
     }
 } 
 
+pub fn update_led (leds: &mut [[u8; 5]; 5], mode: &mut State) {
+    match mode {
+        State::H => {
+            *leds = H;
+        }
+        State::S => {
+            *leds = S;
+        }
+        State::V => {
+            *leds = V;
+        }
+    }
+}
 
 pub const H: [[u8; 5]; 5] = [
     [0, 1, 0, 1, 0],

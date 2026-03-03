@@ -8,20 +8,29 @@ mod state;
 use panic_rtt_target as _;
 use rtt_target::{rprintln, rtt_init_print};
 use core::cell::RefCell;
+use embedded_hal::digital::OutputPin;
 
 use cortex_m_rt::entry;
 use microbit::{
     board::Board,
     display::blocking::Display,
-    hal::{Timer, gpiote::Gpiote, pac::interrupt},
+    hal::{gpio, Timer, gpiote::Gpiote, pac::{self, interrupt}},
 };
-//use critical_section_lock_mut::LockMut;
+use critical_section_lock_mut::LockMut;
 use critical_section::Mutex;
-//use init;
 
+//10ms (1s/1000ms) at 1MHz (1_000_000 ticks per second) count rate at 50% (/2)
+static FRAME: f32 = ((10 * 1_000_000 / 1000) / 2) as f32;
 static GPIO: Mutex<RefCell<Option<Gpiote>>> = Mutex::new(RefCell::new(None));
 static MODE: Mutex<RefCell<state::State>> = Mutex::new(RefCell::new(state::State::H));
-//const EMPTY: [[u8; 5]; 5] = [[0; 5]; 5];
+static TIMER_R: LockMut<Timer<pac::TIMER1>> = LockMut::new();
+static TIMER_G: LockMut<Timer<pac::TIMER2>> = LockMut::new();
+static TIMER_B: LockMut<Timer<pac::TIMER3>> = LockMut::new();
+//need generic pin type, same as degraded pin_r
+static PIN_R: LockMut<gpio::Pin<gpio::Output<gpio::PushPull>>> = LockMut::new();
+static PIN_G: LockMut<gpio::Pin<gpio::Output<gpio::PushPull>>> = LockMut::new();
+static PIN_B: LockMut<gpio::Pin<gpio::Output<gpio::PushPull>>> = LockMut::new();
+const EMPTY: [[u8; 5]; 5] = [[0; 5]; 5];
 
 #[interrupt]
 fn GPIOTE() {
@@ -48,31 +57,99 @@ fn GPIOTE() {
      });
 }
 
+#[interrupt]
+fn TIMER1() {
+    TIMER_R.with_lock(|timer_r| {
+        timer_r.reset_event()
+    });
+    PIN_R.with_lock(|pin_r| {
+        pin_r.set_high().unwrap()
+    });
+}
+#[interrupt]
+fn TIMER2() {
+    TIMER_G.with_lock(|timer_g| {
+        timer_g.reset_event()
+    });
+    PIN_G.with_lock(|pin_g| {
+        pin_g.set_high().unwrap()
+    });
+}
+#[interrupt]
+fn TIMER3() {
+    TIMER_B.with_lock(|timer_b| {
+        timer_b.reset_event()
+    });
+    PIN_B.with_lock(|pin_b| {
+        pin_b.set_high().unwrap()
+    });
+}
+
 #[entry]
 fn main() -> ! {
     rtt_init_print!();
     let board = Board::take().unwrap();
-    let mut leds: [[u8; 5]; 5];
+    let mut leds: [[u8; 5]; 5] = EMPTY;
     let mut timer = Timer::new(board.TIMER0);
     let mut display = Display::new(board.display_pins);
+    let mut rgb = conversion::Rgb {r: 0.2, g: 0.33, b: 0.2, };
+    let mut timer_r = Timer::new(board.TIMER1);
+    let mut timer_g = Timer::new(board.TIMER2);
+    let mut timer_b = Timer::new(board.TIMER3);
+    let pin_r = board.edge.e09.into_push_pull_output(gpio::Level::Low).degrade();
+    let pin_g = board.edge.e08.into_push_pull_output(gpio::Level::Low).degrade();
+    let pin_b = board.edge.e16.into_push_pull_output(gpio::Level::Low).degrade();
+
+    //let _: () = pin_r;    //compiler will tell me type
+    PIN_R.init(pin_r);
+    PIN_G.init(pin_g);
+    PIN_B.init(pin_b);
+
+    timer_r.enable_interrupt();
+    timer_r.reset_event();
+    TIMER_R.init(timer_r);
+
+    timer_g.enable_interrupt();
+    timer_g.reset_event();
+    TIMER_G.init(timer_g);
+
+    timer_b.enable_interrupt();
+    timer_b.reset_event();
+    TIMER_B.init(timer_b);
+
+
+    unsafe {
+        pac::NVIC::unmask(pac::Interrupt::TIMER1);
+        pac::NVIC::unmask(pac::Interrupt::TIMER2);
+        pac::NVIC::unmask(pac::Interrupt::TIMER3);
+    }
+    pac::NVIC::unpend(pac::Interrupt::TIMER1);
+    pac::NVIC::unpend(pac::Interrupt::TIMER2);
+    pac::NVIC::unpend(pac::Interrupt::TIMER3);
+
 
     init::init_buttons(board.GPIOTE, board.buttons);
 
     rprintln!("Hi from the program");
     loop {
         let mut mode = critical_section::with(|cs| *MODE.borrow(cs).borrow());
-        match mode {
-            state::State::H => {
-                leds = state::H;
-            }
-            state::State::S => {
-                leds = state::S;
-            }
-            state::State::V => {
-                leds = state::V;
-            }
-        }
-        display.show(&mut timer, leds, 100);
+        state::update_led(&mut leds, &mut mode);
+
+        PIN_R.with_lock(|pin_r| {
+            pin_r.set_low().unwrap()
+        });
+        PIN_G.with_lock(|pin_g| {
+            pin_g.set_low().unwrap()
+        });
+        TIMER_R.with_lock(|timer_r| {
+            timer_r.start((rgb.r * FRAME) as u32);
+        });
+        TIMER_G.with_lock(|timer_g| {
+            timer_g.start((rgb.g * FRAME) as u32);
+        });
+        
+
+        display.show(&mut timer, leds, 10);
 
     }
 }

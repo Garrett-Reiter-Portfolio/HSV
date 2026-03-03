@@ -3,6 +3,17 @@
 version = 4
 
 [[package]]
+name = "atomic_enum"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "99e1aca718ea7b89985790c94aad72d77533063fe00bc497bb79a7c2dae6a661"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
+]
+
+[[package]]
 name = "az"
 version = "1.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -85,6 +96,15 @@ name = "critical-section"
 version = "1.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "790eea4361631c5e7d22598ecd5723ff611904e3344ce8720784c93e3d83d40b"
+
+[[package]]
+name = "critical-section-lock-mut"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "fbb9762738c1ef9d31b7586c00c0158d20025a734f9f6905282c1fc5a2e182f0"
+dependencies = [
+ "critical-section",
+]
 
 [[package]]
 name = "crunchy"
@@ -175,9 +195,12 @@ dependencies = [
 name = "hsv"
 version = "0.1.0"
 dependencies = [
+ "atomic_enum",
  "cortex-m",
  "cortex-m-rt",
  "critical-section",
+ "critical-section-lock-mut",
+ "embedded-hal 1.0.0",
  "hsv 0.2.0",
  "microbit-v2",
  "panic-rtt-target",
