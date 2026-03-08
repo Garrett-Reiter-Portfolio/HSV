@@ -6,7 +6,7 @@ read hue, saturation and values from a potentiometer, convert these into RBG
 color ratios, and output with a RGB LED. Potentiometer and RGB LED will be 
 connected to the controlling micro:bit through a breadboard.
 
-[Watch the video](https://github.com/Garrett-Reiter-Portfolio/HSV/raw/refs/heads/main/hsvThing.mp4)
+[![Watch the video](hsvPicture.jpg)](https://github.com/Garrett-Reiter-Portfolio/HSV/raw/refs/heads/main/hsvThing.mp4)
 
 ## Build and Run
 
