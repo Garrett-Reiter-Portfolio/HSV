@@ -9,12 +9,13 @@ use panic_rtt_target as _;
 use rtt_target::{rprintln, rtt_init_print};
 use core::cell::RefCell;
 use embedded_hal::digital::OutputPin;
+use libm;
 
 use cortex_m_rt::entry;
 use microbit::{
     board::Board,
     display::blocking::Display,
-    hal::{gpio, Timer, gpiote::Gpiote, pac::{self, interrupt}},
+    hal::{saadc, Saadc, gpio, Timer, gpiote::Gpiote, pac::{self, interrupt}},
 };
 use critical_section_lock_mut::LockMut;
 use critical_section::Mutex;
@@ -26,11 +27,41 @@ static MODE: Mutex<RefCell<state::State>> = Mutex::new(RefCell::new(state::State
 static TIMER_R: LockMut<Timer<pac::TIMER1>> = LockMut::new();
 static TIMER_G: LockMut<Timer<pac::TIMER2>> = LockMut::new();
 static TIMER_B: LockMut<Timer<pac::TIMER3>> = LockMut::new();
-//need generic pin type, same as degraded pin_r
+
 static PIN_R: LockMut<gpio::Pin<gpio::Output<gpio::PushPull>>> = LockMut::new();
 static PIN_G: LockMut<gpio::Pin<gpio::Output<gpio::PushPull>>> = LockMut::new();
 static PIN_B: LockMut<gpio::Pin<gpio::Output<gpio::PushPull>>> = LockMut::new();
 const EMPTY: [[u8; 5]; 5] = [[0; 5]; 5];
+
+fn normalize_pot(saadc_result: Result<i16, ()>) -> f32 {
+    let mut normalized = (saadc_result.unwrap() as f32 / 16000.0).clamp(0.0, 1.0);
+    normalized = libm::roundf(normalized * 100.0) / 100.0;
+    normalized
+}
+
+fn updateHSV(mode: state::State, current_value: f32, hsv: &mut conversion::Hsv) {
+    match mode {
+        state::State::H => {
+            hsv.h = current_value;
+        }
+        state::State::S => {
+            hsv.s = current_value;
+        }
+        state::State::V => {
+            hsv.v = current_value;
+        }
+    }
+}
+
+fn if_zero(value: f32) -> f32 {
+    if (value == 0.0) {
+        1.0
+    }
+    else {
+        value
+    }
+}
+
 
 #[interrupt]
 fn GPIOTE() {
@@ -57,6 +88,7 @@ fn GPIOTE() {
      });
 }
 
+
 #[interrupt]
 fn TIMER1() {
     TIMER_R.with_lock(|timer_r| {
@@ -66,6 +98,7 @@ fn TIMER1() {
         pin_r.set_high().unwrap()
     });
 }
+
 #[interrupt]
 fn TIMER2() {
     TIMER_G.with_lock(|timer_g| {
@@ -75,6 +108,7 @@ fn TIMER2() {
         pin_g.set_high().unwrap()
     });
 }
+
 #[interrupt]
 fn TIMER3() {
     TIMER_B.with_lock(|timer_b| {
@@ -85,6 +119,7 @@ fn TIMER3() {
     });
 }
 
+
 #[entry]
 fn main() -> ! {
     rtt_init_print!();
@@ -92,6 +127,7 @@ fn main() -> ! {
     let mut leds: [[u8; 5]; 5] = EMPTY;
     let mut timer = Timer::new(board.TIMER0);
     let mut display = Display::new(board.display_pins);
+    let mut hsv = conversion::Hsv {h: 0.5, s: 0.5, v: 0.5};
     let mut rgb = conversion::Rgb {r: 0.2, g: 0.33, b: 0.2, };
     let mut timer_r = Timer::new(board.TIMER1);
     let mut timer_g = Timer::new(board.TIMER2);
@@ -99,8 +135,14 @@ fn main() -> ! {
     let pin_r = board.edge.e09.into_push_pull_output(gpio::Level::Low).degrade();
     let pin_g = board.edge.e08.into_push_pull_output(gpio::Level::Low).degrade();
     let pin_b = board.edge.e16.into_push_pull_output(gpio::Level::Low).degrade();
+    let saadc_config = saadc::SaadcConfig::default();
+    let mut saadc = Saadc::new(board.ADC, saadc_config);
+    let mut saadc_pin = board.edge.e02.into_floating_input();
+    let mut saadc_result: Result<i16, ()>;
+    let mut norm_pot: f32;
 
     //let _: () = pin_r;    //compiler will tell me type
+
     PIN_R.init(pin_r);
     PIN_G.init(pin_g);
     PIN_B.init(pin_b);
@@ -134,6 +176,11 @@ fn main() -> ! {
     loop {
         let mut mode = critical_section::with(|cs| *MODE.borrow(cs).borrow());
         state::update_led(&mut leds, &mut mode);
+        saadc_result = saadc.read_channel(&mut saadc_pin);
+        norm_pot = normalize_pot(saadc_result);
+
+        updateHSV(mode, norm_pot,&mut hsv);
+        rgb = hsv.to_rgb();
 
         PIN_R.with_lock(|pin_r| {
             pin_r.set_low().unwrap()
@@ -141,11 +188,19 @@ fn main() -> ! {
         PIN_G.with_lock(|pin_g| {
             pin_g.set_low().unwrap()
         });
+        PIN_B.with_lock(|pin_b| {
+            pin_b.set_low().unwrap()
+        });
+        
+
         TIMER_R.with_lock(|timer_r| {
-            timer_r.start((rgb.r * FRAME) as u32);
+            timer_r.start(if_zero(rgb.r * FRAME) as u32);
         });
         TIMER_G.with_lock(|timer_g| {
-            timer_g.start((rgb.g * FRAME) as u32);
+            timer_g.start(if_zero(rgb.g * FRAME) as u32);
+        });
+        TIMER_B.with_lock(|timer_b| {
+            timer_b.start(if_zero(rgb.b * FRAME) as u32);
         });
         
 

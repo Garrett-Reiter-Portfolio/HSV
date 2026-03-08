@@ -1,22 +1,23 @@
-# mb2-template: MicroBit 2 Rust embedded project template
+# HSV
 
-*[A version of this template as a [Github
-Template](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template)
-is available on the `main` branch of this repo.]*
+Garrett Reiter 2026
 
-To use this [`cargo-generate` template
-repository](https://cargo-generate.github.io/cargo-generate/):
+read hue, saturation and values from a potentiometer, convert these into RBG 
+color ratios, and output with a RGB LED. Potentiometer and RGB LED will be 
+connected to the controlling micro:bit through a breadboard.
 
-1. Follow the instructions linked above to make a Git repo
-   for your project.
-   
-2. If needed, do the following to set up your tools:
+## Build and Run
 
-       rustup target add thumbv7em-none-eabihf
-       rustup component add llvm-tools
-       cargo install cargo-binutils
-       cargo install --locked probe-rs-tools
+Instructions are provided in the embedded [micro:bit Discovery](https://docs.rust-embedded.org/discovery-mb2/index.html) for setting up a build environment for the micro:bit.
 
-3. Edit this `README.md`, the `Cargo.toml` and the stuff in
-   `src/` to get the names right and the code to do what you
-   need.
+from the cloned repo on the controlling computer run:
+
+`cargo embed --release`
+
+to flash and run
+
+Another command is:
+
+`cargo run --release`
+
+## License
