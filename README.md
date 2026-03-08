@@ -21,3 +21,9 @@ Another command is:
 `cargo run --release`
 
 ## License
+
+This work is made available under the MIT License
+
+## Acknowledgements
+
+Thanks to Bart Massey and Claude AI for the function that convert HSV to RGB

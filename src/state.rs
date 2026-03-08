@@ -1,13 +1,11 @@
-
 #[derive(Copy, Clone)]
 pub enum State {
-    H,  //hue
-    S,  //saturation
-    V,  //value
+    H, //hue
+    S, //saturation
+    V, //value
 }
 
 impl State {
-
     pub fn next(&mut self) {
         *self = match *self {
             State::H => State::S,
@@ -23,9 +21,9 @@ impl State {
             State::V => State::S,
         }
     }
-} 
+}
 
-pub fn update_led (leds: &mut [[u8; 5]; 5], mode: &mut State) {
+pub fn update_led(leds: &mut [[u8; 5]; 5], mode: &mut State) {
     match mode {
         State::H => {
             *leds = H;
@@ -60,4 +58,3 @@ pub const V: [[u8; 5]; 5] = [
     [0, 1, 0, 1, 0],
     [0, 0, 1, 0, 0],
 ];
-

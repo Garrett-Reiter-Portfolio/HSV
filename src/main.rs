@@ -1,24 +1,29 @@
 #![no_main]
 #![no_std]
 
-mod init;
 mod conversion;
+mod init;
 mod state;
 
-use panic_rtt_target as _;
-use rtt_target::{rprintln, rtt_init_print};
 use core::cell::RefCell;
 use embedded_hal::digital::OutputPin;
-use libm;
+//use libm;
+use panic_rtt_target as _;
+use rtt_target::{rprintln, rtt_init_print};
 
 use cortex_m_rt::entry;
+use critical_section::Mutex;
+use critical_section_lock_mut::LockMut;
 use microbit::{
     board::Board,
     display::blocking::Display,
-    hal::{saadc, Saadc, gpio, Timer, gpiote::Gpiote, pac::{self, interrupt}},
+    hal::{
+        Saadc, Timer, gpio,
+        gpiote::Gpiote,
+        pac::{self, interrupt},
+        saadc,
+    },
 };
-use critical_section_lock_mut::LockMut;
-use critical_section::Mutex;
 
 //10ms (1s/1000ms) at 1MHz (1_000_000 ticks per second) count rate at 50% (/2)
 static FRAME: f32 = ((10 * 1_000_000 / 1000) / 2) as f32;
@@ -39,7 +44,7 @@ fn normalize_pot(saadc_result: Result<i16, ()>) -> f32 {
     normalized
 }
 
-fn updateHSV(mode: state::State, current_value: f32, hsv: &mut conversion::Hsv) {
+fn update_hsv(mode: state::State, current_value: f32, hsv: &mut conversion::Hsv) {
     match mode {
         state::State::H => {
             hsv.h = current_value;
@@ -54,71 +59,51 @@ fn updateHSV(mode: state::State, current_value: f32, hsv: &mut conversion::Hsv) 
 }
 
 fn if_zero(value: f32) -> f32 {
-    if (value == 0.0) {
-        1.0
-    }
-    else {
-        value
-    }
+    if value == 0.0 { 1.0 } else { value }
 }
-
 
 #[interrupt]
 fn GPIOTE() {
-     critical_section::with(|cs| {
-         if let Some(gpiote) = GPIO.borrow(cs).borrow().as_ref() {
-             let a_pressed = gpiote.channel0().is_event_triggered();
-             let b_pressed = gpiote.channel1().is_event_triggered();
+    critical_section::with(|cs| {
+        if let Some(gpiote) = GPIO.borrow(cs).borrow().as_ref() {
+            let a_pressed = gpiote.channel0().is_event_triggered();
+            let b_pressed = gpiote.channel1().is_event_triggered();
 
-             let mut mode = MODE.borrow(cs).borrow_mut();
-             match (a_pressed, b_pressed) {
-                 (true, false) => {
-                     mode.prev();
-                 }
-                 (false, true) => {
-                     mode.next();
-                 }
-                 _ => {}
-             }
-             gpiote.channel0().reset_events();
-             gpiote.channel1().reset_events();
-         } else {
-             rprintln!("GPIOTE interrupt but GPIO not initialized!");
-         }
-     });
+            let mut mode = MODE.borrow(cs).borrow_mut();
+            match (a_pressed, b_pressed) {
+                (true, false) => {
+                    mode.prev();
+                }
+                (false, true) => {
+                    mode.next();
+                }
+                _ => {}
+            }
+            gpiote.channel0().reset_events();
+            gpiote.channel1().reset_events();
+        } else {
+            rprintln!("GPIOTE interrupt but GPIO not initialized!");
+        }
+    });
 }
-
 
 #[interrupt]
 fn TIMER1() {
-    TIMER_R.with_lock(|timer_r| {
-        timer_r.reset_event()
-    });
-    PIN_R.with_lock(|pin_r| {
-        pin_r.set_high().unwrap()
-    });
+    TIMER_R.with_lock(|timer_r| timer_r.reset_event());
+    PIN_R.with_lock(|pin_r| pin_r.set_high().unwrap());
 }
 
 #[interrupt]
 fn TIMER2() {
-    TIMER_G.with_lock(|timer_g| {
-        timer_g.reset_event()
-    });
-    PIN_G.with_lock(|pin_g| {
-        pin_g.set_high().unwrap()
-    });
+    TIMER_G.with_lock(|timer_g| timer_g.reset_event());
+    PIN_G.with_lock(|pin_g| pin_g.set_high().unwrap());
 }
 
 #[interrupt]
 fn TIMER3() {
-    TIMER_B.with_lock(|timer_b| {
-        timer_b.reset_event()
-    });
-    PIN_B.with_lock(|pin_b| {
-        pin_b.set_high().unwrap()
-    });
+    TIMER_B.with_lock(|timer_b| timer_b.reset_event());
+    PIN_B.with_lock(|pin_b| pin_b.set_high().unwrap());
 }
-
 
 #[entry]
 fn main() -> ! {
@@ -127,14 +112,30 @@ fn main() -> ! {
     let mut leds: [[u8; 5]; 5] = EMPTY;
     let mut timer = Timer::new(board.TIMER0);
     let mut display = Display::new(board.display_pins);
-    let mut hsv = conversion::Hsv {h: 0.5, s: 0.5, v: 0.5};
-    let mut rgb = conversion::Rgb {r: 0.2, g: 0.33, b: 0.2, };
+    let mut hsv = conversion::Hsv {
+        h: 0.5,
+        s: 0.5,
+        v: 0.5,
+    };
+    let mut rgb: conversion::Rgb;
     let mut timer_r = Timer::new(board.TIMER1);
     let mut timer_g = Timer::new(board.TIMER2);
     let mut timer_b = Timer::new(board.TIMER3);
-    let pin_r = board.edge.e09.into_push_pull_output(gpio::Level::Low).degrade();
-    let pin_g = board.edge.e08.into_push_pull_output(gpio::Level::Low).degrade();
-    let pin_b = board.edge.e16.into_push_pull_output(gpio::Level::Low).degrade();
+    let pin_r = board
+        .edge
+        .e09
+        .into_push_pull_output(gpio::Level::Low)
+        .degrade();
+    let pin_g = board
+        .edge
+        .e08
+        .into_push_pull_output(gpio::Level::Low)
+        .degrade();
+    let pin_b = board
+        .edge
+        .e16
+        .into_push_pull_output(gpio::Level::Low)
+        .degrade();
     let saadc_config = saadc::SaadcConfig::default();
     let mut saadc = Saadc::new(board.ADC, saadc_config);
     let mut saadc_pin = board.edge.e02.into_floating_input();
@@ -159,7 +160,6 @@ fn main() -> ! {
     timer_b.reset_event();
     TIMER_B.init(timer_b);
 
-
     unsafe {
         pac::NVIC::unmask(pac::Interrupt::TIMER1);
         pac::NVIC::unmask(pac::Interrupt::TIMER2);
@@ -168,7 +168,6 @@ fn main() -> ! {
     pac::NVIC::unpend(pac::Interrupt::TIMER1);
     pac::NVIC::unpend(pac::Interrupt::TIMER2);
     pac::NVIC::unpend(pac::Interrupt::TIMER3);
-
 
     init::init_buttons(board.GPIOTE, board.buttons);
 
@@ -179,19 +178,12 @@ fn main() -> ! {
         saadc_result = saadc.read_channel(&mut saadc_pin);
         norm_pot = normalize_pot(saadc_result);
 
-        updateHSV(mode, norm_pot,&mut hsv);
+        update_hsv(mode, norm_pot, &mut hsv);
         rgb = hsv.to_rgb();
 
-        PIN_R.with_lock(|pin_r| {
-            pin_r.set_low().unwrap()
-        });
-        PIN_G.with_lock(|pin_g| {
-            pin_g.set_low().unwrap()
-        });
-        PIN_B.with_lock(|pin_b| {
-            pin_b.set_low().unwrap()
-        });
-        
+        PIN_R.with_lock(|pin_r| pin_r.set_low().unwrap());
+        PIN_G.with_lock(|pin_g| pin_g.set_low().unwrap());
+        PIN_B.with_lock(|pin_b| pin_b.set_low().unwrap());
 
         TIMER_R.with_lock(|timer_r| {
             timer_r.start(if_zero(rgb.r * FRAME) as u32);
@@ -202,11 +194,7 @@ fn main() -> ! {
         TIMER_B.with_lock(|timer_b| {
             timer_b.start(if_zero(rgb.b * FRAME) as u32);
         });
-        
 
         display.show(&mut timer, leds, 10);
-
     }
 }
-
-
